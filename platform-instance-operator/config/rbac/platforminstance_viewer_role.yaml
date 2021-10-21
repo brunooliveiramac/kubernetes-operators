@@ -1,0 +1,20 @@
+# permissions for end users to view platforminstances.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platforminstance-viewer-role
+rules:
+- apiGroups:
+  - app.platform.com
+  resources:
+  - platforminstances
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - app.platform.com
+  resources:
+  - platforminstances/status
+  verbs:
+  - get
