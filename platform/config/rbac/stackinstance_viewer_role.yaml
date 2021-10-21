@@ -1,0 +1,20 @@
+# permissions for end users to view stackinstances.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: stackinstance-viewer-role
+rules:
+- apiGroups:
+  - app.platform.com
+  resources:
+  - stackinstances
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - app.platform.com
+  resources:
+  - stackinstances/status
+  verbs:
+  - get

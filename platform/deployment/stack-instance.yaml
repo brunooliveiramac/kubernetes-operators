@@ -1,0 +1,15 @@
+apiVersion:  app.platform.com/v1alpha1
+kind: StackInstance
+metadata:
+  name: africa-1
+spec:
+  replicas: 1
+  stack:
+    provider: azure
+    registry: docker.io/silviosilva
+    image: example
+    version: 0.1.0
+    region: centralus-3
+    outputs:
+      - name
+      - id

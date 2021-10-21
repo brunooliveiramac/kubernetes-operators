@@ -1,0 +1,7 @@
+apiVersion: app.platform.com/v1alpha1
+kind: StackInstance
+metadata:
+  name: stackinstance-sample
+spec:
+  # Add fields here
+  foo: bar
