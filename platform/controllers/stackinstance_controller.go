@@ -72,18 +72,17 @@ func (r *StackInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		// Error reading the object - requeue the request.
 		return ctrl.Result{}, err
-
 	}
 
 	// List all pods owned by this PodSet instance
-	podSet := instance
+	instancePod := instance
 	podList := &corev1.PodList{}
 	lbs := map[string]string{
-		"app":     podSet.Name,
+		"app":     instancePod.Name,
 		"version": "v0.1",
 	}
 	labelSelector := labels.SelectorFromSet(lbs)
-	listOps := &client.ListOptions{Namespace: podSet.Namespace, LabelSelector: labelSelector}
+	listOps := &client.ListOptions{Namespace: instancePod.Namespace, LabelSelector: labelSelector}
 	if err = r.List(context.TODO(), podList, listOps); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -109,18 +108,18 @@ func (r *StackInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		PodNames:          availableNames,
 		AvailableReplicas: numAvailable,
 	}
-	if !reflect.DeepEqual(podSet.Status, status) {
-		podSet.Status = status
-		err = r.Status().Update(context.TODO(), podSet)
+	if !reflect.DeepEqual(instancePod.Status, status) {
+		instancePod.Status = status
+		err = r.Status().Update(context.TODO(), instancePod)
 		if err != nil {
 			log.Error(err, "Failed to update PodSet status")
 			return ctrl.Result{}, err
 		}
 	}
 
-	if numAvailable > podSet.Spec.Replicas {
-		log.Info("Scaling down pods", "Currently available", numAvailable, "Required replicas", podSet.Spec.Replicas)
-		diff := numAvailable - podSet.Spec.Replicas
+	if numAvailable > instancePod.Spec.Replicas {
+		log.Info("Scaling down pods", "Currently available", numAvailable, "Required replicas", instancePod.Spec.Replicas)
+		diff := numAvailable - instancePod.Spec.Replicas
 		dpods := available[:diff]
 		for _, dpod := range dpods {
 			err = r.Delete(context.TODO(), &dpod)
@@ -132,12 +131,26 @@ func (r *StackInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if numAvailable < podSet.Spec.Replicas {
+	// Create a config map
+
+	if numAvailable < instancePod.Spec.Replicas {
+		log.Info("Creating the configmap", "Name", instancePod.Name)
+
+		configMap := newConfigMap(instancePod)
+
+		err = r.Create(context.TODO(), configMap)
+		if err != nil {
+			log.Error(err, "Failed to create configMap", "configMap", configMap.Name)
+			return ctrl.Result{}, err
+		}
+
 		log.Info("Scaling up pods", "Currently available", numAvailable)
+
 		// Define a new Pod object
-		pod := newPodForCR(podSet)
+		pod := newPod(instancePod)
+
 		// Set PodSet instance as the owner and controller
-		if err := controllerutil.SetControllerReference(podSet, pod, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(instancePod, pod, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
 		err = r.Create(context.TODO(), pod)
@@ -151,7 +164,26 @@ func (r *StackInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func newPodForCR(cr *appv1alpha1.StackInstance) *corev1.Pod {
+func newConfigMap(cr *appv1alpha1.StackInstance) *corev1.ConfigMap {
+	labels := map[string]string{
+		"app":     cr.Name,
+		"version": "v0.1",
+	}
+	return &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cr.Name,
+			Labels:    labels,
+			Namespace: "default",
+		},
+		Data: map[string]string{
+			"TF_VAR_region": "centralus-3",
+		},
+	}
+}
+
+// .withEnvFrom(envFromSourceSecret, envFromSourceConfigMap)
+func newPod(cr *appv1alpha1.StackInstance) *corev1.Pod {
 	labels := map[string]string{
 		"app":     cr.Name,
 		"version": "v0.1",
@@ -165,10 +197,20 @@ func newPodForCR(cr *appv1alpha1.StackInstance) *corev1.Pod {
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:    "stack",
-					Image:   "docker.io/silviosilva/azure/example:0.1.0",
-					Command: []string{"apply"},
-					Args:    []string{"-auto-approve"},
+					Name:  "stack",
+					Image: "silviosilva/azure-example:0.1.0",
+					Args:  []string{"apply", "-auto-approve"},
+					Env: []corev1.EnvVar{{
+						Name:  "TF_VAR_region",
+						Value: "centralus-3",
+					}},
+					EnvFrom: []corev1.EnvFromSource{{
+						SecretRef: &corev1.SecretEnvSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "azure-credentials",
+							},
+						},
+					}},
 				},
 			},
 		},
